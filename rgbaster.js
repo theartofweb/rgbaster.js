@@ -68,7 +68,7 @@
       }
 
       for(var pixelPos in samplePoints) {
-        var idx = 4 * pixelPos;
+        var idx = 4 * samplePoints[pixelPos];
         // average to nearest #RGB colour	
         rgb[0] = 17 * Math.round(data[idx]/17);
         rgb[1] = 17 * Math.round(data[idx+1]/17);
