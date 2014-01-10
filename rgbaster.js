@@ -1,106 +1,111 @@
-;(function(window, undefined){
+;(function(window, undefined) {
 
   "use strict";
 
-  // Helper functions.
-  var getContext = function(){
-    return document.createElement("canvas").getContext('2d');
+  var createRange = function(start, end) {
+    var retval = []
+    for(var i=start; i <= end; i++) retval.push(i);
+    return retval;
   };
 
-  var getImageData = function(img, loaded){
+  var randomSample = function(array, sampleSize) {
+    var retval = [];
+    for(var i = array.length - 1; i > 0 && retval.length < sampleSize; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      retval.push(array.splice(j, 1));
+    }
+    return retval;
+  };
+
+  var getImageData = function(img, callback) {
 
     var imgObj = new Image();
 
-    // Can't set cross origin to be anonymous for data url's
+    // can't set cross origin to be anonymous for data urls
     // https://github.com/mrdoob/three.js/issues/1305
-    if ( img.src.substring(0,5) !== 'data:' )
-      imgObj.crossOrigin = "Anonymous";
+    if(!img.src.match(/^data:/)) imgObj.crossOrigin = "Anonymous";
     
     imgObj.src = img.src;
 
-    imgObj.onload = function(){  
-      var context = getContext();
+    imgObj.onload = function() {
+      var context = document.createElement("canvas").getContext("2d");
       context.drawImage(imgObj, 0, 0);
 
       var imageData = context.getImageData(0, 0, img.width, img.height);
-      loaded && loaded(imageData.data);
+      callback && typeof callback == "function" && callback(imageData.data);
     };
 
   };
 
-  var makeRGB = function(name){
-    return ['rgb(', name, ')'].join('');
-  };
-
-  var mapPalette = function(palette){
-    return palette.map(function(c){ return makeRGB(c.name) })
-  }
-
   /**
   *     RGBaster Object
   *     
-  *     @method colors     
+  *     @method getPalette     
   *
   */
-  var BLOCKSIZE = 5; 
-  var PALETTESIZE = 10; 
+  var SAMPLESIZE = 5; // percent
 
   var RGBaster = {};
 
-  RGBaster.colors = function(img, success, paletteSize){
-    getImageData(img, function(data){
+  RGBaster.getPalette = function(img, callback, paletteSize) {
 
-              var length        = data.length,
-                  colorCounts   = {},
-                  rgbString     = '',
-                  rgb           = [],
-                  colors        = { 
-                    dominant: { name: '', count: 0 },
-                    palette:  Array.apply(null, Array(paletteSize || PALETTESIZE)).map(Boolean).map(function(a){ return { name: '0,0,0', count: 0 } }) 
-                  };
+    var loaded = function(data) {
 
-              // Loop over all pixels, in BLOCKSIZE iterations.
-              var i = 0;
-              while ( i < length ) {
-                rgb[0] = data[i];
-                rgb[1] = data[i+1];
-                rgb[2] = data[i+2];
-                rgbString = rgb.join(",");
+      var length        = data.length,
+          w             = img.width,
+          h             = img.height,
+          sampleSize    = Math.ceil(w * SAMPLESIZE / 100),
+          samplePoints  = [],
+          rgb           = [],
+          colorCounts   = [],
+          tuples        = [],
+          palette       = [];
 
-                // Keep track of counts.
-                if ( rgbString in colorCounts ) {
-                  colorCounts[rgbString] = colorCounts[rgbString] + 1; 
-                } 
-                else{
-                  colorCounts[rgbString] = 1;
-                }
+      for(var row = 0; row < h; row++) {
+        samplePoints = samplePoints.concat(
+          randomSample(createRange(row * w, (row+1) * w - 1), sampleSize)
+        );
+      }
 
-                // Find dominant and palette, ignoring black/white pixels.
-                if ( rgbString !== "0,0,0" && rgbString !== "255,255,255" ) {
-                  var colorCount = colorCounts[rgbString]
-                  if ( colorCount > colors.dominant.count ){
-                    colors.dominant.name = rgbString;
-                    colors.dominant.count = colorCount;
-                  } else {
-                    colors.palette.some(function(c){
-                      if ( colorCount > c.count ) {
-                        c.name = rgbString;
-                        c.count = colorCount;
-                        return true;
-                      }
-                    });
-                  }
-                }
+      for(var pixelPos in samplePoints) {
+        var idx = 4 * pixelPos;
+        // average to nearest #RGB colour	
+        rgb[0] = 17 * Math.round(data[idx]/17);
+        rgb[1] = 17 * Math.round(data[idx+1]/17);
+        rgb[2] = 17 * Math.round(data[idx+2]/17);
+        var rgbString = rgb.join(",");
 
-                // Increment!
-                i += BLOCKSIZE * 4;
-              }
+        // count all colours not black/white
+        if(rgbString != "0,0,0" && rgbString != "255,255,255") {
+          if(rgbString in colorCounts) {
+            colorCounts[rgbString]++;
+          } else {
+            colorCounts[rgbString] = 1;
+          }
+        }
 
-              success && success({
-                dominant: makeRGB(colors.dominant.name),
-                palette:  mapPalette(colors.palette)
-              });
-    });
+      }
+
+      // sort colours in descending order
+      for(var key in colorCounts) tuples.push([key, colorCounts[key]]);
+      tuples.sort(function(a, b) { return b[1] - a[1]; });
+
+      var total = 0;
+      if(!paletteSize) paletteSize = tuples.length;
+      for(var i=0; i < Math.min(tuples.length, paletteSize); i++) {
+        palette.push({ name: tuples[i][0], count: tuples[i][1] });
+        total += tuples[i][1];
+      }
+
+      callback && typeof callback == "function" && callback(
+        palette.map(function(c) {
+          return { color: "rgb(" + c.name + ")", percent: Math.round(1000 * c.count/total)/10 }
+        })
+      );
+
+    };
+
+    getImageData(img, loaded);
   }
 
   window.RGBaster = window.RGBaster || RGBaster;
